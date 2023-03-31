@@ -1,0 +1,238 @@
+---
+title: "BigDeals"
+author: "Anubhav Dixit"
+date: "2022-11-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#BigDeal Challenge model development
+# install.packages("ipred", repos="http://R-Forge.R-project.org")
+# install.packages("fpp")
+# install.packages("forecast")
+# install.packages("ffp3")
+# install.packages("tidyverse")
+# install.packages("xlsx")
+
+library("xlsx")
+library(readxl)
+library(tree)
+library(readxl)
+library(rpart)
+library(ipred)
+library(tidyverse)
+library(npreg)
+library(fpp)
+library(gbm)
+library(randomForest)
+
+
+Qualifying_Math_Data <- read_excel("C:/Users/Shashank/Desktop/INDE 6360/BigDEAL Challenge 2022 Qualifying Match/Qualifying Math Data.xlsx")
+df3<-data.frame(Qualifying_Math_Data)
+
+
+
+rmse_reg <- function(model_obj, testing = NULL, target = NULL) {
+  #Calculates rmse for a regression decision tree
+  #Arguments:
+  # testing - test data set
+  # target  - target variable (length 1 character vector)
+  yhat <- predict(model_obj, newdata = testing)
+  actual <- testing[[target]]
+  sqrt(mean((yhat-actual)^2))
+}
+
+
+
+#create a date column 
+#df3$Date<-as.Date(with(df3,paste(Year,Month,Day,sep="-")),"%Y-%m-%d")
+#head(df3)
+
+#subset the data for all years prior to 2007
+#This approach processes all the data, spring summer and fall
+df00<-subset(df3, subset = df3$Year< 2007) 
+head(df00)
+tail(df00)
+
+
+
+#Create training and test data sets
+#make this example reproducible
+set.seed(1)
+rows <- sample(x=nrow(df00), size=.7*nrow(df00))
+data.train <- df00[rows,]
+data.test <- df00[-rows,]
+
+#Spring load predictions with randomForest()
+annual.fit <- randomForest(Load ~ ., data = data.train, mtry = 2, n.trees = 10000)
+annual.error<-rmse_reg(annual.fit, data.test, "Load")
+annual.error
+summary(annual.fit)
+
+spring.train <- subset(data.train, subset = data.train$Month >= 1 & data.train$Month <= 4)
+spring.test <- subset(data.test, subset = data.test$Month >= 1 & data.test$Month <= 4)
+summer.train <- subset(data.train, subset = data.train$Month >= 5 & data.train$Month <= 10)
+summer.test <- subset(data.test, subset = data.test$Month >= 5 & data.test$Month <= 10)
+fall.train <- subset(data.train, subset = data.train$Month >= 11 & data.train$Month <= 12)
+fall.test <- subset(data.test, subset = data.test$Month >= 11 & data.test$Month <= 12)
+
+head(spring.train)
+head(summer.train)
+head(fall.train)
+
+#explore the load variation through the months
+boxplot(data.train$Load~data.train$Month)
+
+
+
+#Spring load predictions with randomForest()
+spring.fit <- randomForest(Load ~ ., data = spring.train, mtry = 2, n.trees = 10000)
+spring.error<-rmse_reg(spring.fit, spring.test, "Load")
+spring.error
+summary(spring.fit)
+
+#Summer load predictions with randomForest()
+summer.fit <- randomForest(Load ~ ., data = summer.train, mtry = 2, n.trees = 10000)
+summer.error<-rmse_reg(summer.fit, summer.test, "Load")
+summer.error
+summary(summer.fit)
+
+#fall load predictions with randomForest()
+fall.fit <- randomForest(Load ~ ., data = fall.train, mtry = 2, n.trees = 10000)
+fall.error<-rmse_reg(fall.fit, fall.test, "Load")
+fall.error
+summary(fall.fit)
+
+
+#Prepare prediction vectors for 2007
+
+data2007<-data.frame(subset(df3, subset = df3$Year== 2007))
+
+spring2007<-data.frame(subset(data2007, subset = data2007$Month >= 1 & data2007$Month <= 4))
+spring.forecast<-predict(spring.fit, newdata = spring2007)
+write.table(spring.forecast, file = "springForecast.csv", sep = ",", col.names = NA)
+
+summer2007<-data.frame(subset(data2007, data2007$Month >= 5 & data2007$Month <= 10))
+summer.forecast<-predict(summer.fit, newdata = summer2007)
+write.table(summer.forecast, file = "summerForecast.csv", sep = ",", col.names = NA)
+
+fall2007<-data.frame(subset(data2007, subset = data2007$Month >= 11 & data2007$Month <= 12))
+fall.forecast<-predict(fall.fit, newdata = fall2007)
+write.table(fall.forecast, file = "fallForecast.csv", sep = ",", col.names = NA)
+
+#Prepare Tracks 2 & 3
+#begin working with annual data set
+
+annual.forecast<-predict(annual.fit, newdata = data2007)
+data2007$Date<-as.Date(with(data2007,paste(Year,Month,Day,sep="-")),"%Y-%m-%d")
+data2007$LoadEst<-annual.forecast
+head(data2007)
+
+plot(data2007$LoadEst~data2007$Hour)
+
+  # dailyTemps<-subset(data2007, subset = data2007$Month == 11 & data2007$Day == 1 )
+  # head(dailyTemps)
+  #extract row with min column value
+  # maxdailytemp<-dailyTemps[which.max(dailyTemps$LoadEst),]
+
+#prepare o/p data frame for month of January Only
+MaxTemp_hr.January<-data.frame(matrix(ncol = 12, nrow = 31))
+k<-0
+#Populate data frame with January max load values
+for (j in 1:31){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 1 & data2007$Day == j )
+  MaxTemp_hr.January[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+head(MaxTemp_hr.January)
+
+Jan.daily.maxLoad<-MaxTemp_hr.January$X12
+write.table(Jan.daily.maxLoad, file = "January_daily.csv", sep = ",", col.names = NA)
+Jan.daily.maxTime<-MaxTemp_hr.January$X5
+write.table(Jan.daily.maxTime, file = "January_timely.csv", sep = ",", col.names = NA)
+
+#Populate data frame with February max load values
+MaxTemp_hr.Feb<-data.frame(matrix(ncol = 12, nrow = 28))
+k<-0
+for (j in 1:28){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 2 & data2007$Day == j )
+  MaxTemp_hr.Feb[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+
+Feb.daily.maxLoad<-MaxTemp_hr.Feb$X12
+write.table(Feb.daily.maxLoad, file = "Feb_daily.csv", sep = ",", col.names = NA)
+Feb.daily.maxTime<-MaxTemp_hr.Feb$X5
+write.table(Feb.daily.maxTime, file = "Feb_timely.csv", sep = ",", col.names = NA)
+
+#Populate data frame with March max load values
+MaxTemp_hr.March<-data.frame(matrix(ncol = 12, nrow = 31))
+k<-0
+#Populate data frame with March max load values
+for (j in 1:31){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 3 & data2007$Day == j )
+  MaxTemp_hr.March[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+head(MaxTemp_hr.March)
+
+March.daily.maxLoad<-MaxTemp_hr.March$X12
+write.table(March.daily.maxLoad, file = "March_daily.csv", sep = ",", col.names = NA)
+March.daily.maxTime<-MaxTemp_hr.March$X5
+write.table(March.daily.maxTime, file = "March_timely.csv", sep = ",", col.names = NA)
+
+#Populate data frame with April max load values
+MaxTemp_hr.April<-data.frame(matrix(ncol = 12, nrow = 30))
+k<-0
+#Populate data frame with April max load values
+for (j in 1:30){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 4 & data2007$Day == j )
+  MaxTemp_hr.April[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+head(MaxTemp_hr.April)
+
+April.daily.maxLoad<-MaxTemp_hr.April$X12
+write.table(April.daily.maxLoad, file = "April_daily.csv", sep = ",", col.names = NA)
+April.daily.maxTime<-MaxTemp_hr.April$X5
+write.table(April.daily.maxTime, file = "April_timely.csv", sep = ",", col.names = NA)
+
+
+#Populate data frame with November max load values
+MaxTemp_hr.November<-data.frame(matrix(ncol = 12, nrow = 30))
+k<-0
+#Populate data frame with November max load values
+for (j in 1:30){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 11 & data2007$Day == j )
+  MaxTemp_hr.November[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+head(MaxTemp_hr.November)
+
+November.daily.maxLoad<-MaxTemp_hr.November$X12
+write.table(November.daily.maxLoad, file = "November_daily.csv", sep = ",", col.names = NA)
+November.daily.maxTime<-MaxTemp_hr.November$X5
+write.table(November.daily.maxTime, file = "November_timely.csv", sep = ",", col.names = NA)
+
+#Populate data frame with December max load values
+MaxTemp_hr.December<-data.frame(matrix(ncol = 12, nrow = 31))
+k<-0
+#Populate data frame with December max load values
+for (j in 1:31){
+  k=k+1
+  dailyTemps1<-subset(data2007, subset = data2007$Month == 12 & data2007$Day == j )
+  MaxTemp_hr.December[k,]<-dailyTemps1[which.max(dailyTemps1$LoadEst),]
+}
+head(MaxTemp_hr.December)
+
+December.daily.maxLoad<-MaxTemp_hr.December$X12
+write.table(December.daily.maxLoad, file = "December_daily.csv", sep = ",", col.names = NA)
+December.daily.maxTime<-MaxTemp_hr.December$X5
+write.table(December.daily.maxTime, file = "December_timely.csv", sep = ",", col.names = NA)
+
+```
+
